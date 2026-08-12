@@ -4,4 +4,5 @@ python-multipart
 PyPDF2
 pdf2image
 Pillow
+pypdf
 pdf2docx
