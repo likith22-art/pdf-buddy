@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 python-multipart
-PyPDF2
-pdf2docx
+pyPDF2
+pdf2image
 Pillow
-pdf2imagepypdf
+pypdf
