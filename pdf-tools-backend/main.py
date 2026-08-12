@@ -1,92 +1,95 @@
-from fastapi import FastAPI, UploadFile, File, Form
+import io
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pypdf import PdfWriter, PdfReader
 from pdf2docx import Converter
-import os
-import shutil
 
 app = FastAPI()
 
+# Enable CORS for frontend requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "outputs"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+@app.get("/")
+def read_root():
+    return {"status": "PDF Buddy Backend is live!"}
 
-# 1. MERGE PDF
 @app.post("/merge")
 async def merge_pdfs(files: list[UploadFile] = File(...)):
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="Please upload at least two PDF files to merge.")
+    
     merger = PdfWriter()
     for file in files:
-        file_path = os.path.join(UPLOAD_DIR, file.filename)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        merger.append(file_path)
+        pdf_bytes = await file.read()
+        merger.append(io.BytesIO(pdf_bytes))
     
-    output_path = os.path.join(OUTPUT_DIR, "merged.pdf")
-    merger.write(output_path)
+    output = io.BytesIO()
+    merger.write(output)
     merger.close()
-    return FileResponse(output_path, filename="merged.pdf")
+    output.seek(0)
+    
+    return StreamingResponse(
+        output, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": "attachment; filename=merged.pdf"}
+    )
 
-# 2. PDF TO WORD
+@app.post("/split")
+async def split_pdf(
+    file: UploadFile = File(...), 
+    start_page: int = Query(1), 
+    end_page: int = Query(1)
+):
+    pdf_bytes = await file.read()
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+
+    total_pages = len(reader.pages)
+    if start_page < 1 or end_page > total_pages or start_page > end_page:
+        raise HTTPException(status_code=400, detail="Invalid page range.")
+
+    for page_num in range(start_page - 1, end_page):
+        writer.add_page(reader.pages[page_num])
+
+    output = io.BytesIO()
+    writer.write(output)
+    writer.close()
+    output.seek(0)
+
+    return StreamingResponse(
+        output, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": "attachment; filename=split.pdf"}
+    )
+
 @app.post("/pdf-to-word")
 async def pdf_to_word(file: UploadFile = File(...)):
-    input_path = os.path.join(UPLOAD_DIR, file.filename)
-    output_path = os.path.join(OUTPUT_DIR, f"{os.path.splitext(file.filename)[0]}.docx")
+    pdf_bytes = await file.read()
+    pdf_stream = io.BytesIO(pdf_bytes)
     
-    with open(input_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Save temporary PDF for converter
+    temp_pdf_path = "/tmp/temp.pdf" if hasattr(io, "tmp") else "temp_input.pdf"
+    temp_docx_path = "temp_output.docx"
+    
+    with open(temp_pdf_path, "wb") as f:
+        f.write(pdf_stream.getbuffer())
         
-    cv = Converter(input_path)
-    cv.convert(output_path)
+    cv = Converter(temp_pdf_path)
+    cv.convert(temp_docx_path, start=0, end=None)
     cv.close()
-    
-    return FileResponse(output_path, filename=os.path.basename(output_path))
 
-# 3. SPLIT PDF
-@app.post("/split")
-async def split_pdf(file: UploadFile = File(...), start_page: int = Form(1), end_page: int = Form(1)):
-    input_path = os.path.join(UPLOAD_DIR, file.filename)
-    output_path = os.path.join(OUTPUT_DIR, "split_output.pdf")
-    
-    with open(input_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
-    
-    for page_num in range(start_page - 1, min(end_page, len(reader.pages))):
-        writer.add_page(reader.pages[page_num])
-        
-    with open(output_path, "wb") as f:
-        writer.write(f)
-        
-    return FileResponse(output_path, filename="split_output.pdf")
+    with open(temp_docx_path, "rb") as f:
+        docx_bytes = f.read()
 
-# 4. COMPRESS PDF
-@app.post("/compress")
-async def compress_pdf(file: UploadFile = File(...)):
-    input_path = os.path.join(UPLOAD_DIR, file.filename)
-    output_path = os.path.join(OUTPUT_DIR, "compressed.pdf")
-    
-    with open(input_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
-    
-    for page in reader.pages:
-        page.compress_content_streams()
-        writer.add_page(page)
-        
-    with open(output_path, "wb") as f:
-        writer.write(f)
-        
-    return FileResponse(output_path, filename="compressed.pdf")
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": "attachment; filename=converted.docx"}
+    )
