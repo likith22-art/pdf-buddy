@@ -3,11 +3,10 @@ import io
 import zipfile
 from typing import List
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pypdf import PdfReader, PdfWriter
 from pdf2docx import Converter
-from pdf2image import convert_from_bytes
 
 app = FastAPI(title="PDF Buddy Backend")
 
@@ -106,23 +105,6 @@ async def protect_pdf(
         headers={"Content-Disposition": "attachment; filename=protected.pdf"}
     )
 
-@app.post("/pdf-to-images")
-async def pdf_to_images(file: UploadFile = File(...)):
-    contents = await file.read()
-    images = convert_from_bytes(contents)
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        for i, img in enumerate(images):
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='JPEG')
-            zip_file.writestr(f"page_{i + 1}.jpg", img_byte_arr.getvalue())
-    zip_buffer.seek(0)
-    return Response(
-        content=zip_buffer.getvalue(),
-        media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=extracted_images.zip"}
-    )
-
 @app.post("/pdf-to-word")
 async def pdf_to_word(file: UploadFile = File(...)):
     temp_pdf = f"temp_{file.filename}"
@@ -138,7 +120,7 @@ async def pdf_to_word(file: UploadFile = File(...)):
         return Response(
             content=docx_data,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f"attachment; filename=converted.docx"}
+            headers={"Content-Disposition": "attachment; filename=converted.docx"}
         )
     finally:
         if os.path.exists(temp_pdf):
