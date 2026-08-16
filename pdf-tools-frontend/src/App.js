@@ -1,186 +1,236 @@
-import React, { useState } from 'react';
-import axios from 'axios';
+import React, { useState } from "react";
+import "./App.css";
 
 function App() {
-  const [activeTab, setActiveTab] = useState('merge');
-  const [selectedFiles, setSelectedFiles] = useState(null);
-  const [startPage, setStartPage] = useState(1);
-  const [endPage, setEndPage] = useState(1);
-  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [activeTab, setActiveTab] = useState("merge");
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [outputFileName, setOutputFileName] = useState("");
+  const [splitRange, setSplitRange] = useState({ start: 1, end: 1 });
+  const [rotationAngle, setRotationAngle] = useState(90);
+  const [password, setPassword] = useState("");
+
+  const handleFileChange = (e) => {
+    if (e.target.files) {
+      setSelectedFiles(Array.from(e.target.files));
+      setDownloadUrl(null);
+    }
+  };
 
   const handleProcess = async () => {
-    if (!selectedFiles || selectedFiles.length === 0) {
-      alert("Please select file(s) first!");
+    if (selectedFiles.length === 0) {
+      alert("Please upload at least one file!");
       return;
     }
 
+    const API_URL = "https://pdf-buddy-backend-qpeh.onrender.com";
+    const formData = new FormData();
     setLoading(true);
     setDownloadUrl(null);
-    const formData = new FormData();
 
     try {
-      let endpoint = "http://localhost:8000/" + activeTab;
-      let resultFileName = 'result.pdf';
+      let endpoint = "";
+      let filename = "result.pdf";
 
-      if (activeTab === 'merge') {
-        resultFileName = 'merged.pdf';
-        for (let i = 0; i < selectedFiles.length; i++) {
-          formData.append('files', selectedFiles[i]);
+      if (activeTab === "merge") {
+        if (selectedFiles.length < 2) {
+          alert("Please select at least 2 PDF files to merge!");
+          setLoading(false);
+          return;
         }
-      } else if (activeTab === 'img-to-pdf') {
-        resultFileName = 'images_combined.pdf';
-        for (let i = 0; i < selectedFiles.length; i++) {
-          formData.append('files', selectedFiles[i]);
+        endpoint = API_URL + "/merge";
+        selectedFiles.forEach((file) => formData.append("files", file));
+        filename = "merged.pdf";
+      } else if (activeTab === "split") {
+        endpoint = API_URL + "/split?start_page=" + splitRange.start + "&end_page=" + splitRange.end;
+        formData.append("file", selectedFiles[0]);
+        filename = "split.pdf";
+      } else if (activeTab === "rotate") {
+        endpoint = API_URL + "/rotate?angle=" + rotationAngle;
+        formData.append("file", selectedFiles[0]);
+        filename = "rotated.pdf";
+      } else if (activeTab === "protect") {
+        if (!password.trim()) {
+          alert("Please enter a password to protect the PDF!");
+          setLoading(false);
+          return;
         }
-      } else if (activeTab === 'pdf-to-word') {
-        resultFileName = 'converted.docx';
-        formData.append('file', selectedFiles[0]);
-      } else if (activeTab === 'split') {
-        resultFileName = 'split.pdf';
-        formData.append('file', selectedFiles[0]);
-        formData.append('start_page', startPage);
-        formData.append('end_page', endPage);
-      } else if (activeTab === 'compress') {
-        resultFileName = 'compressed.pdf';
-        formData.append('file', selectedFiles[0]);
+        endpoint = API_URL + "/protect?password=" + encodeURIComponent(password);
+        formData.append("file", selectedFiles[0]);
+        filename = "protected.pdf";
+      } else if (activeTab === "pdf-to-images") {
+        endpoint = API_URL + "/pdf-to-images";
+        formData.append("file", selectedFiles[0]);
+        filename = "extracted_images.zip";
+      } else if (activeTab === "pdf-to-word") {
+        endpoint = API_URL + "/pdf-to-word";
+        formData.append("file", selectedFiles[0]);
+        filename = "converted.docx";
       }
 
-      const response = await axios.post(endpoint, formData, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      setDownloadUrl({ url, name: resultFileName });
-    } catch (error) {
-      alert("Processing failed. Make sure your Python backend is active!");
+      const response = await fetch(endpoint, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to process file on backend");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      setDownloadUrl(url);
+      setOutputFileName(filename);
+    } catch (err) {
+      console.error(err);
+      alert("Processing failed. Please check your backend connection!");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      setSelectedFiles(e.dataTransfer.files);
-    }
-  };
+  const tabs = [
+    { id: "merge", label: "Merge PDF" },
+    { id: "split", label: "Split PDF" },
+    { id: "rotate", label: "Rotate PDF" },
+    { id: "protect", label: "Protect PDF" },
+    { id: "pdf-to-images", label: "PDF to Images" },
+    { id: "pdf-to-word", label: "PDF to Word" },
+  ];
 
   return (
-    <div style={{ backgroundColor: '#f4f7fe', minHeight: '100vh', fontFamily: "'Segoe UI', Roboto, sans-serif" }}>
-      <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e0e0e0', padding: '16px 40px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ backgroundColor: '#4f46e5', color: '#fff', padding: '6px 12px', borderRadius: '8px', fontWeight: 'bold', fontSize: '20px' }}>PDF</span>
-          <h1 style={{ margin: 0, fontSize: '22px', color: '#1f2937', fontWeight: '700' }}>PDF BUDDY</h1>
+    <div className="min-h-screen bg-gray-50 text-gray-800 flex flex-col font-sans">
+      <header className="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center shadow-sm">
+        <div className="flex items-center space-x-3">
+          <div className="bg-blue-600 text-white font-black px-3 py-1.5 rounded-lg text-lg tracking-wider">
+            PDF
+          </div>
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight">PDF BUDDY</h1>
         </div>
-        <span style={{ fontSize: '14px', color: '#6b7280' }}>All-in-One Online Document Studio</span>
+        <span className="text-sm text-gray-500 font-medium">All-in-One Online PDF Tool</span>
       </header>
 
-      <main style={{ maxWidth: '800px', margin: '40px auto', padding: '0 20px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '24px' }}>
-          {[
-            { id: 'merge', label: 'Merge PDF' },
-            { id: 'img-to-pdf', label: 'Image to PDF' },
-            { id: 'pdf-to-word', label: 'PDF to Word' },
-            { id: 'split', label: 'Split PDF' },
-            { id: 'compress', label: 'Compress PDF' }
-          ].map((tab) => (
+      <main className="flex-1 max-w-4xl w-full mx-auto p-6 flex flex-col items-center">
+        {/* Navigation Tabs */}
+        <div className="flex flex-wrap gap-2 bg-gray-200/60 p-2 rounded-2xl mb-8 w-full max-w-2xl justify-center">
+          {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setDownloadUrl(null); setSelectedFiles(null); }}
-              style={{
-                padding: '12px 10px',
-                borderRadius: '8px',
-                border: 'none',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                backgroundColor: activeTab === tab.id ? '#4f46e5' : '#ffffff',
-                color: activeTab === tab.id ? '#ffffff' : '#4b5563',
-                boxShadow: activeTab === tab.id ? '0 4px 12px rgba(79, 70, 229, 0.3)' : '0 1px 3px rgba(0,0,0,0.1)'
+              onClick={() => {
+                setActiveTab(tab.id);
+                setSelectedFiles([]);
+                setDownloadUrl(null);
               }}
+              className={
+                "py-2 px-4 rounded-xl font-semibold text-sm transition-all duration-200 " +
+                (activeTab === tab.id
+                  ? "bg-blue-600 text-white shadow"
+                  : "text-gray-600 hover:text-gray-900 bg-transparent")
+              }
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', padding: '32px', boxShadow: '0 4px 20px rgba(0,0,0,0.06)', textAlign: 'center' }}>
-          <div
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            style={{
-              borderStyle: 'dashed',
-              borderWidth: '2px',
-              borderColor: isDragging ? '#4f46e5' : '#cbd5e1',
-              borderRadius: '10px',
-              padding: '40px 20px',
-              backgroundColor: isDragging ? '#eef2ff' : '#f8fafc',
-              transition: 'all 0.2s ease',
-              marginBottom: '20px'
-            }}
-          >
-            <p style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#475569', fontWeight: '500' }}>
-              Drag and drop your file(s) here, or
-            </p>
-            <label style={{ backgroundColor: '#e0e7ff', color: '#4338ca', padding: '10px 20px', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', display: 'inline-block' }}>
+        {/* Upload Container */}
+        <div className="w-full bg-white rounded-2xl shadow-xl border border-gray-100 p-8 flex flex-col items-center">
+          <div className="w-full border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-8 text-center bg-gray-50/50 transition-colors flex flex-col items-center justify-center">
+            <p className="text-gray-500 text-sm mb-4">Drag and drop your file(s) here, or</p>
+            <label className="cursor-pointer bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold px-6 py-2 rounded-lg text-sm transition-colors border border-blue-200">
               Browse Files
               <input
                 type="file"
-                multiple={activeTab === 'merge' || activeTab === 'img-to-pdf'}
-                accept={activeTab === 'img-to-pdf' ? "image/*" : ".pdf"}
-                onChange={(e) => setSelectedFiles(e.target.files)}
-                style={{ display: 'none' }}
+                multiple={activeTab === "merge"}
+                accept=".pdf"
+                className="hidden"
+                onChange={handleFileChange}
               />
             </label>
-
-            {selectedFiles && selectedFiles.length > 0 && (
-              <div style={{ marginTop: '16px', color: '#059669', fontWeight: '600', fontSize: '14px' }}>
-                Selected ({selectedFiles.length}): {Array.from(selectedFiles).map(f => f.name).join(', ')}
-              </div>
+            {selectedFiles.length > 0 && (
+              <p className="mt-4 text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                Selected ({selectedFiles.length}): {selectedFiles.map((f) => f.name).join(", ")}
+              </p>
             )}
           </div>
 
-          {activeTab === 'split' && (
-            <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'center', gap: '20px', alignItems: 'center' }}>
-              <label style={{ fontSize: '14px', color: '#374151', fontWeight: '500' }}>
+          {/* Conditional Controls */}
+          {activeTab === "split" && (
+            <div className="flex space-x-4 mt-6 items-center">
+              <label className="text-sm font-semibold text-gray-700">
                 From Page:
-                <input type="number" min="1" value={startPage} onChange={(e) => setStartPage(e.target.value)} style={{ width: '60px', marginLeft: '8px', padding: '6px', borderRadius: '4px', border: '1px solid #d1d5db' }} />
+                <input
+                  type="number"
+                  min="1"
+                  value={splitRange.start}
+                  onChange={(e) => setSplitRange({ ...splitRange, start: parseInt(e.target.value) || 1 })}
+                  className="ml-2 border border-gray-300 rounded px-2 py-1 w-16 text-center"
+                />
               </label>
-              <label style={{ fontSize: '14px', color: '#374151', fontWeight: '500' }}>
+              <label className="text-sm font-semibold text-gray-700">
                 To Page:
-                <input type="number" min="1" value={endPage} onChange={(e) => setEndPage(e.target.value)} style={{ width: '60px', marginLeft: '8px', padding: '6px', borderRadius: '4px', border: '1px solid #d1d5db' }} />
+                <input
+                  type="number"
+                  min="1"
+                  value={splitRange.end}
+                  onChange={(e) => setSplitRange({ ...splitRange, end: parseInt(e.target.value) || 1 })}
+                  className="ml-2 border border-gray-300 rounded px-2 py-1 w-16 text-center"
+                />
               </label>
             </div>
           )}
 
+          {activeTab === "rotate" && (
+            <div className="mt-6 flex items-center space-x-3">
+              <span className="text-sm font-semibold text-gray-700">Rotate By:</span>
+              <select
+                value={rotationAngle}
+                onChange={(e) => setRotationAngle(parseInt(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-medium focus:ring-2 focus:ring-blue-500"
+              >
+                <option value={90}>90° Clockwise</option>
+                <option value={180}>180° Upside Down</option>
+                <option value={270}>270° Counter-Clockwise</option>
+              </select>
+            </div>
+          )}
+
+          {activeTab === "protect" && (
+            <div className="mt-6 w-full max-w-xs">
+              <input
+                type="password"
+                placeholder="Enter password to lock PDF"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          )}
+
+          {/* Action Button */}
           <button
             onClick={handleProcess}
-            disabled={loading}
-            style={{
-              width: '100%',
-              padding: '14px',
-              fontSize: '16px',
-              fontWeight: '600',
-              backgroundColor: '#10b981',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
-            }}
+            disabled={loading || selectedFiles.length === 0}
+            className={
+              "mt-6 w-full py-3.5 px-6 rounded-xl font-bold text-white transition-all shadow-md " +
+              (loading || selectedFiles.length === 0
+                ? "bg-gray-300 cursor-not-allowed"
+                : "bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99]")
+            }
           >
-            {loading ? 'Processing Document...' : 'Execute Tool'}
+            {loading ? "Processing Document..." : "Execute Tool"}
           </button>
 
+          {/* Download Button */}
           {downloadUrl && (
-            <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
-              <a href={downloadUrl.url} download={downloadUrl.name} style={{ textDecoration: 'none' }}>
-                <button style={{ padding: '12px 28px', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}>
-                  Download {downloadUrl.name}
-                </button>
-              </a>
-            </div>
+            <a
+              href={downloadUrl}
+              download={outputFileName}
+              className="mt-4 w-full text-center py-3.5 px-6 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition-all animate-bounce"
+            >
+              Download {outputFileName}
+            </a>
           )}
         </div>
       </main>
