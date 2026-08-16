@@ -1,6 +1,5 @@
 import os
 import io
-import zipfile
 from typing import List
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import Response
@@ -120,7 +119,7 @@ async def pdf_to_word(file: UploadFile = File(...)):
         return Response(
             content=docx_data,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": "attachment; filename=converted.docx"}
+            headers={"Content-Disposition": f"attachment; filename=converted.docx"}
         )
     finally:
         if os.path.exists(temp_pdf):
